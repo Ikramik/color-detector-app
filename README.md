@@ -50,7 +50,7 @@ To test the app:
 ## 🖋️ Author
 
 Made with 💡 by **Ikram Bekkaoui**  
-🔗 [LinkedIn](https://www.linkedin.com/in/your-profile)  
+🔗 [LinkedIn](https://www.linkedin.com/in/ikram-bekkaoui?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)  
 📂 [Portfolio](https://github.com/Ikramik)
 
 ---
