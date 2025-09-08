@@ -34,12 +34,9 @@ This Android app is designed to help people with color blindness. It detects the
 
 To test the app:
 
-1. Download the latest `.apk` from [Releases](https://github.com/Ikramik/color-detector-app/releases)
+1. Download the latest `.apk` from [Releases]([https://github.com/Ikramik/color-detector-app/releases](https://github.com/Ikramik/color-detector-app/releases/tag/v2.0))
 2. Install on your Android device.
 3. Grant necessary camera and storage permissions.
-
-> ⚠️ This is a test version. Only install from trusted sources.
-
 ---
 
 ## 📌 Project Status
