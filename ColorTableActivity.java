@@ -1,41 +1,52 @@
 package com.example.eyec;
 
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.ListView;
+import android.widget.GridView;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.io.File;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ColorTableActivity extends AppCompatActivity {
-    private ListView listView;
+    private GridView gridView;
     private List<ClothingItem> clothingItems = new ArrayList<>();
-    private ClothingAdapter adapter;
+    private List<ClothingItem> filteredItems = new ArrayList<>();
+    private ClothingGridAdapter adapter;
+    private Spinner spinnerColorFilter;
+    private SharedPreferences prefs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_color_table);
+        setContentView(R.layout.activity_color_table_grid);
 
-        listView = findViewById(R.id.listView);
-        adapter = new ClothingAdapter(this, clothingItems);
-        listView.setAdapter(adapter);
+        gridView = findViewById(R.id.gridView);
+        spinnerColorFilter = findViewById(R.id.spinnerColorFilter);
+        prefs = getSharedPreferences("ClothingPrefs", MODE_PRIVATE);
+
+        adapter = new ClothingGridAdapter(this, filteredItems);
+        gridView.setAdapter(adapter);
 
         loadClothingItems();
+        setupColorFilter();
 
-        listView.setOnItemClickListener((parent, view, position, id) -> {
-            ClothingItem item = clothingItems.get(position);
+        gridView.setOnItemClickListener((parent, view, position, id) -> {
+            ClothingItem item = filteredItems.get(position);
             showItemDetails(item);
         });
 
@@ -50,8 +61,52 @@ public class ColorTableActivity extends AppCompatActivity {
         clothingItems.clear();
         for (Map.Entry<String, ?> entry : allEntries.entrySet()) {
             String[] parts = entry.getValue().toString().split("\\|");
-            if (parts.length == 2) {
-                clothingItems.add(new ClothingItem(entry.getKey(), parts[0], parts[1]));
+            if (parts.length >= 2) {
+                // Format is now: "Clothing|color|imagePath"
+                String imagePath = parts.length >= 3 ? parts[2] : null;
+                clothingItems.add(new ClothingItem(entry.getKey(), parts[1], imagePath));
+            }
+        }
+
+        filteredItems.clear();
+        filteredItems.addAll(clothingItems);
+        adapter.notifyDataSetChanged();
+    }
+
+    private void setupColorFilter() {
+        Set<String> colors = new HashSet<>();
+        for (ClothingItem item : clothingItems) {
+            colors.add(item.getColor());
+        }
+
+        List<String> colorList = new ArrayList<>(colors);
+        colorList.add(0, "All Colors");
+
+        ArrayAdapter<String> colorAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, colorList);
+        colorAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+
+        spinnerColorFilter.setAdapter(colorAdapter);
+
+        spinnerColorFilter.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                applyFilters();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
+    }
+
+    private void applyFilters() {
+        String selectedColor = spinnerColorFilter.getSelectedItem().toString();
+
+        filteredItems.clear();
+        for (ClothingItem item : clothingItems) {
+            boolean colorMatch = selectedColor.equals("All Colors") || item.getColor().equals(selectedColor);
+            if (colorMatch) {
+                filteredItems.add(item);
             }
         }
 
@@ -60,36 +115,52 @@ public class ColorTableActivity extends AppCompatActivity {
 
     private void showItemDetails(ClothingItem item) {
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_item_details, null);
-        TextView tvType = dialogView.findViewById(R.id.tvType);
         TextView tvColor = dialogView.findViewById(R.id.tvColor);
 
-        tvType.setText("Type: " + item.getType());
         tvColor.setText("Color: " + item.getColor());
 
-        new AlertDialog.Builder(this)
-                .setTitle("Item #" + item.getId())
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Item: " + item.getId())
                 .setView(dialogView)
                 .setPositiveButton("OK", null)
+                .setNegativeButton("Delete", (dialogInterface, which) -> {
+                    showDeleteConfirmation(item);
+                })
+                .create();
+
+        dialog.show();
+    }
+
+    private void showDeleteConfirmation(ClothingItem item) {
+        new AlertDialog.Builder(this)
+                .setTitle("Confirm Delete")
+                .setMessage("Are you sure you want to delete this item?")
+                .setPositiveButton("Yes", (dialog, which) -> {
+                    deleteItem(item);
+                })
+                .setNegativeButton("No", null)
                 .show();
     }
 
-    private static class ClothingAdapter extends ArrayAdapter<ClothingItem> {
-        public ClothingAdapter(Context context, List<ClothingItem> items) {
-            super(context, R.layout.list_item_clothing, items);
-        }
+    private void deleteItem(ClothingItem item) {
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.remove(item.getId());
+        editor.apply();
 
-        @Override
-        public View getView(int position, View convertView, ViewGroup parent) {
-            if (convertView == null) {
-                convertView = LayoutInflater.from(getContext())
-                        .inflate(R.layout.list_item_clothing, parent, false);
+        if (item.getImagePath() != null) {
+            File imageFile = new File(item.getImagePath());
+            if (imageFile.exists()) {
+                if (imageFile.delete()) {
+                    Toast.makeText(this, "Image file deleted", Toast.LENGTH_SHORT).show();
+                }
             }
-
-            ClothingItem item = getItem(position);
-            TextView tvId = convertView.findViewById(R.id.tvId);
-            tvId.setText("Item #" + item.getId());
-
-            return convertView;
         }
+
+        // Remove from lists and update UI
+        clothingItems.remove(item);
+        filteredItems.remove(item);
+        adapter.notifyDataSetChanged();
+
+        Toast.makeText(this, "Item deleted successfully", Toast.LENGTH_SHORT).show();
     }
 }
