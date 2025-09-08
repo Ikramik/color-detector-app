@@ -10,7 +10,6 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
-import android.text.InputType;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -27,15 +26,13 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.palette.graphics.Palette;
 
-import org.tensorflow.lite.Interpreter;
-import org.tensorflow.lite.support.image.TensorImage;
-
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,21 +42,20 @@ public class UploadActivity extends AppCompatActivity {
     private static final String TAG = "UploadActivity";
     private static final int CAMERA_REQUEST_CODE = 100;
     private static final int GALLERY_REQUEST_CODE = 101;
-    private static final int INPUT_SIZE = 224;
-    private static final int MIN_CONFIDENCE = 60; // Minimum confidence percentage
 
     private Uri imageUri;
     private ImageView imageView;
     private TextView resultTextView;
     private Button btnCancel, btnSave;
     private String detectedColor = "Unknown";
-    private String clothingType = "Unknown";
-    
+    private Bitmap currentBitmap;
+
     // Color detection thresholds
     private static final float SATURATION_THRESHOLD = 0.15f;
     private static final float VALUE_THRESHOLD_DARK = 0.15f;
     private static final float VALUE_THRESHOLD_LIGHT = 0.85f;
-    
+    private static final String IMAGE_DIR = "clothing_images";
+
     // Color ranges for better detection
     private static final Map<String, float[]> COLOR_RANGES = new HashMap<String, float[]>() {{
         put("Red", new float[]{-20f, 20f});
@@ -71,9 +67,6 @@ public class UploadActivity extends AppCompatActivity {
         put("Pink", new float[]{291f, 340f});
     }};
 
-    private Interpreter tflite;
-    private final List<String> clothingLabels = Arrays.asList("Shirt", "Pants", "Dress", "Jacket", "Skirt", "Shorts");
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,11 +75,21 @@ public class UploadActivity extends AppCompatActivity {
         initializeViews();
         setupButtons();
 
-        try {
-            tflite = new Interpreter(loadModelFile("clothing_model.tflite"));
-        } catch (IOException e) {
-            e.printStackTrace();
-            Toast.makeText(this, "Failed to load model", Toast.LENGTH_SHORT).show();
+        Intent intent = getIntent();
+        if (intent != null && "camera".equals(intent.getStringExtra("source"))) {
+            Bundle extras = intent.getExtras();
+            if (extras != null && extras.containsKey("data")) {
+                Bitmap cameraImage = (Bitmap) extras.get("data");
+                if (cameraImage != null) {
+                    currentBitmap = cameraImage;
+                    imageView.setImageBitmap(cameraImage);
+                    analyzeImage(cameraImage);
+                }
+            }
+        } else if (intent != null && "gallery".equals(intent.getStringExtra("source"))) {
+            openGallery();
+        } else {
+            showUploadOptions();
         }
     }
 
@@ -108,18 +111,18 @@ public class UploadActivity extends AppCompatActivity {
         String[] options = {"Take Photo", "Choose from Gallery"};
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Select Image Source")
-               .setItems(options, (dialog, which) -> {
-                   if (which == 0) openCamera();
-                   else openGallery();
-               })
-               .show();
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) openCamera();
+                    else openGallery();
+                })
+                .show();
     }
 
     private void openCamera() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, 
-                new String[]{Manifest.permission.CAMERA}, CAMERA_REQUEST_CODE);
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.CAMERA}, CAMERA_REQUEST_CODE);
         } else {
             Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
             startActivityForResult(intent, CAMERA_REQUEST_CODE);
@@ -138,12 +141,17 @@ public class UploadActivity extends AppCompatActivity {
             try {
                 Bitmap bitmap = null;
                 if (requestCode == CAMERA_REQUEST_CODE) {
-                    bitmap = (Bitmap) data.getExtras().get("data");
+                    Bundle extras = data.getExtras();
+                    if (extras != null && extras.containsKey("data")) {
+                        bitmap = (Bitmap) extras.get("data");
+                        currentBitmap = bitmap;
+                    }
                 } else if (requestCode == GALLERY_REQUEST_CODE) {
                     imageUri = data.getData();
                     bitmap = MediaStore.Images.Media.getBitmap(getContentResolver(), imageUri);
+                    currentBitmap = bitmap;
                 }
-                
+
                 if (bitmap != null) {
                     imageView.setImageBitmap(bitmap);
                     analyzeImage(bitmap);
@@ -157,7 +165,6 @@ public class UploadActivity extends AppCompatActivity {
 
     private void analyzeImage(Bitmap bitmap) {
         analyzeColorAdvanced(bitmap);
-        analyzeClothingType(bitmap);
     }
 
     private void analyzeColorAdvanced(Bitmap bitmap) {
@@ -209,7 +216,7 @@ public class UploadActivity extends AppCompatActivity {
         }
 
         if (hue < 0) hue += 360f;
-        
+
         for (Map.Entry<String, float[]> entry : COLOR_RANGES.entrySet()) {
             float[] range = entry.getValue();
             if (range[0] <= hue && hue <= range[1]) {
@@ -221,78 +228,13 @@ public class UploadActivity extends AppCompatActivity {
         return "Unknown";
     }
 
-    private void analyzeClothingType(Bitmap bitmap) {
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        
-        int sampleSize = 20;
-        int[][] samples = new int[sampleSize][sampleSize];
-        
-        for (int x = 0; x < sampleSize; x++) {
-            for (int y = 0; y < sampleSize; y++) {
-                int pixelX = (width * x) / sampleSize;
-                int pixelY = (height * y) / sampleSize;
-                samples[x][y] = bitmap.getPixel(pixelX, pixelY);
-            }
-        }
-        
-        float aspectRatio = (float) height / width;
-        boolean hasVerticalPattern = detectVerticalPattern(samples);
-        boolean hasHorizontalPattern = detectHorizontalPattern(samples);
-        
-        if (aspectRatio > 1.5f) {
-            clothingType = "Dress";
-        } else if (aspectRatio < 0.8f) {
-            clothingType = hasHorizontalPattern ? "Pants" : "Shorts";
-        } else {
-            clothingType = hasVerticalPattern ? "Shirt" : "Jacket";
-        }
-        
-        updateResults();
-    }
-
-    private boolean detectVerticalPattern(int[][] samples) {
-        int changes = 0;
-        for (int x = 0; x < samples.length; x++) {
-            for (int y = 1; y < samples[x].length; y++) {
-                if (isDifferentColor(samples[x][y], samples[x][y-1])) {
-                    changes++;
-                }
-            }
-        }
-        return changes > (samples.length * samples[0].length * 0.3);
-    }
-
-    private boolean detectHorizontalPattern(int[][] samples) {
-        int changes = 0;
-        for (int y = 0; y < samples[0].length; y++) {
-            for (int x = 1; x < samples.length; x++) {
-                if (isDifferentColor(samples[x][y], samples[x-1][y])) {
-                    changes++;
-                }
-            }
-        }
-        return changes > (samples.length * samples[0].length * 0.3);
-    }
-
-    private boolean isDifferentColor(int color1, int color2) {
-        int threshold = 30;
-        int r1 = Color.red(color1), r2 = Color.red(color2);
-        int g1 = Color.green(color1), g2 = Color.green(color2);
-        int b1 = Color.blue(color1), b2 = Color.blue(color2);
-        
-        return Math.abs(r1 - r2) > threshold ||
-               Math.abs(g1 - g2) > threshold ||
-               Math.abs(b1 - b2) > threshold;
-    }
-
     private void updateResults() {
-        String result = String.format("Type: %s\nColor: %s", clothingType, detectedColor);
+        String result = String.format("Color: %s", detectedColor);
         resultTextView.setText(result);
     }
 
     private void saveResults() {
-        if (detectedColor.equals("Unknown") || clothingType.equals("Unknown")) {
+        if (detectedColor.equals("Unknown") || currentBitmap == null) {
             Toast.makeText(this, "No results to save", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -310,25 +252,25 @@ public class UploadActivity extends AppCompatActivity {
         dialog.setOnShowListener(dialogInterface -> {
             Button button = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             button.setOnClickListener(view -> {
-                String id = etDialogId.getText().toString().trim();
-                if (TextUtils.isEmpty(id)) {
+                String itemId = etDialogId.getText().toString().trim();
+                if (TextUtils.isEmpty(itemId)) {
                     etDialogId.setError("Please enter an ID");
                     return;
                 }
 
                 SharedPreferences prefs = getSharedPreferences("ClothingPrefs", MODE_PRIVATE);
-                if (prefs.contains(id)) {
+                if (prefs.contains(itemId)) {
                     new AlertDialog.Builder(this)
                             .setTitle("ID Already Exists")
                             .setMessage("An item with this ID already exists. Do you want to overwrite it?")
                             .setPositiveButton("Yes", (innerDialog, which) -> {
-                                saveItem(id);
+                                saveItem(itemId, currentBitmap);
                                 dialog.dismiss();
                             })
                             .setNegativeButton("No", null)
                             .show();
                 } else {
-                    saveItem(id);
+                    saveItem(itemId, currentBitmap);
                     dialog.dismiss();
                 }
             });
@@ -337,20 +279,36 @@ public class UploadActivity extends AppCompatActivity {
         dialog.show();
     }
 
-    private void saveItem(String id) {
+    private String saveImageToStorage(Bitmap bitmap, String id) {
+        try {
+            File directory = new File(getFilesDir(), IMAGE_DIR);
+            if (!directory.exists()) {
+                directory.mkdirs();
+            }
+
+            File imageFile = new File(directory, id + ".jpg");
+            FileOutputStream fos = new FileOutputStream(imageFile);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos);
+            fos.close();
+
+            return imageFile.getAbsolutePath();
+        } catch (IOException e) {
+            Log.e(TAG, "Error saving image", e);
+            return null;
+        }
+    }
+
+    private void saveItem(String id, Bitmap imageBitmap) {
         SharedPreferences prefs = getSharedPreferences("ClothingPrefs", MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
-        editor.putString(id, clothingType + "|" + detectedColor);
+
+        String imagePath = saveImageToStorage(imageBitmap, id);
+        // Save only color information (no type)
+        String data = "Clothing|" + detectedColor + "|" + imagePath;
+
+        editor.putString(id, data);
         editor.apply();
         Toast.makeText(this, "Item saved successfully", Toast.LENGTH_SHORT).show();
         finish();
-    }
-
-    private MappedByteBuffer loadModelFile(String modelPath) throws IOException {
-        FileInputStream inputStream = new FileInputStream(getAssets().openFd(modelPath).getFileDescriptor());
-        FileChannel fileChannel = inputStream.getChannel();
-        long startOffset = getAssets().openFd(modelPath).getStartOffset();
-        long declaredLength = getAssets().openFd(modelPath).getDeclaredLength();
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
     }
 }
