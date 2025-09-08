@@ -1,15 +1,15 @@
-# Color Detector App 👚🎨
+# EyeC - Color Detector App 👚🎨
 
-This Android app is designed to help people with color blindness. It detects the dominant color and type of clothing items from uploaded or captured images and organizes them by user-defined IDs.
+This Android app is designed to help people with color blindness. It detects the dominant color of clothing items from uploaded or captured images and organizes them by user-defined IDs.
 
 ---
 
 ## 🧠 Features
 
-- Detects dominant color from captured or uploaded images.
-- Identifies and labels clothing type (e.g., "red pants").
-- Stores only the ID and metadata — not the full image — to optimize storage.
+- Detects **dominant color** from captured or uploaded images with **almost 100% accuracy**.
+- Stores only the **ID and metadata**, not the full image, to optimize storage.
 - Categorizes items under color groups for easy access.
+- Simple, accessible interface for all users.
 
 ---
 
@@ -17,14 +17,14 @@ This Android app is designed to help people with color blindness. It detects the
 
 - Java
 - Android Studio
-- ML Kit / OpenCV (for color and object detection)
+- OpenCV (for color detection)
 
 ---
 
 ## 📱 How to Use
 
 1. Capture or upload a photo of clothing.
-2. View the detected color and clothing name.
+2. View the detected color.
 3. Enter an ID and save it.
 4. View all items sorted by detected color.
 
@@ -34,9 +34,11 @@ This Android app is designed to help people with color blindness. It detects the
 
 To test the app:
 
-- Download the latest `.apk` from [Releases](https://github.com/Ikramik/color-detector-app/releases)
-- Install on your Android device.
-- Grant necessary camera and storage permissions.
+1. Download the latest `.apk` from [Releases](https://github.com/Ikramik/color-detector-app/releases)
+2. Install on your Android device.
+3. Grant necessary camera and storage permissions.
+
+> ⚠️ This is a test version. Only install from trusted sources.
 
 ---
 
@@ -50,7 +52,5 @@ To test the app:
 ## 🖋️ Author
 
 Made with 💡 by **Ikram Bekkaoui**  
-🔗 [LinkedIn](https://www.linkedin.com/in/ikram-bekkaoui?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)  
+🔗 [LinkedIn](https://www.linkedin.com/in/ikram-bekkaoui)  
 📂 [Portfolio](https://github.com/Ikramik)
-
----
